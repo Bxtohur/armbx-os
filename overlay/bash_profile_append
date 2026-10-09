@@ -1,0 +1,5 @@
+
+# ArmBX first-login WiFi setup wizard (runs only on local console, not SSH)
+if [ -z "$SSH_CONNECTION" ] && [ -t 0 ] && [ ! -f "$HOME/.armbx-net-ok" ] && command -v armbx-wifi-setup >/dev/null 2>&1; then
+    armbx-wifi-setup
+fi

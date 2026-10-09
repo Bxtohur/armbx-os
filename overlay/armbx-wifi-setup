@@ -1,0 +1,76 @@
+#!/bin/bash
+# ArmBX interactive WiFi setup wizard. Runs on first local login if no network.
+set -u
+
+MARKER="$HOME/.armbx-net-ok"
+
+# Skip if marker already present (user ran it before)
+[ -f "$MARKER" ] && exit 0
+
+# Skip if we already have a default route (ethernet or wifi already up)
+if ip -4 route show default 2>/dev/null | grep -q 'default via'; then
+    IP=$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+    echo ""
+    echo "✓ Network already connected (IP: $IP). Skipping WiFi setup."
+    touch "$MARKER"
+    exit 0
+fi
+
+cat <<'HEAD'
+
+============================================================
+                 ArmBX OS — WiFi Setup Wizard
+============================================================
+
+HEAD
+
+# Make sure wifi radio is on
+sudo nmcli radio wifi on 2>/dev/null || true
+echo "Scanning WiFi networks..."
+sudo nmcli device wifi rescan 2>/dev/null || true
+sleep 3
+
+attempt=0
+while true; do
+    attempt=$((attempt + 1))
+    echo ""
+    echo "--- Available networks ---"
+    nmcli -f IN-USE,SSID,SIGNAL,BARS,SECURITY device wifi list 2>/dev/null | awk 'NR==1 || $2 !~ /^(--|$)/' | head -20
+    echo ""
+    read -rp "WiFi SSID to connect (or 'skip' to continue without WiFi): " ssid
+    if [ "$ssid" = "skip" ] || [ "$ssid" = "SKIP" ]; then
+        echo "Skipping WiFi setup. You can run it later with:  armbx-wifi-setup"
+        touch "$MARKER"
+        break
+    fi
+    if [ -z "$ssid" ]; then
+        continue
+    fi
+    read -rsp "Password for '$ssid': " pass
+    echo ""
+    echo "Connecting..."
+    if sudo nmcli device wifi connect "$ssid" password "$pass"; then
+        sleep 4
+        IP=$(ip -4 -o addr show wlan0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+        echo ""
+        echo "============================================================"
+        echo "  ✓ Connected to '$ssid'"
+        echo "  IP address: $IP"
+        echo ""
+        echo "  You can now SSH from another machine:"
+        echo "     ssh bx@$IP"
+        echo "============================================================"
+        echo ""
+        touch "$MARKER"
+        # Update banner/issue
+        sudo /usr/local/sbin/armbx-update-issue 2>/dev/null || true
+        break
+    else
+        echo ""
+        echo "✗ Connection failed."
+        if [ $attempt -ge 5 ]; then
+            echo "Too many failures. Type 'armbx-wifi-setup' later to retry."
+            break
+        fi
+    fi
+done

@@ -1,0 +1,207 @@
+#!/bin/bash
+# ArmBX OS Toolkit - interactive menu
+# Usage: bx-menu (or just: bx)
+
+set -u
+
+if ! command -v whiptail >/dev/null; then
+    echo "whiptail not installed. Run: sudo apt install -y whiptail"
+    exit 1
+fi
+
+TITLE="ArmBX OS Toolkit"
+
+msg() { whiptail --title "$1" --msgbox "$2" 15 70; }
+
+menu_wifi() {
+    if ! command -v armbx-wifi-setup >/dev/null; then
+        msg "WiFi" "armbx-wifi-setup script not found."
+        return
+    fi
+    clear
+    armbx-wifi-setup
+    read -rp "Press Enter to continue..."
+}
+
+menu_usb() {
+    local list=()
+    while read -r name size type mnt; do
+        [ "$type" = "part" ] || continue
+        [[ "$name" =~ ^/dev/sd ]] || continue
+        local info="$size"
+        [ -n "$mnt" ] && info="$size [mounted]" || info="$size [unmounted]"
+        list+=("$name" "$info")
+    done < <(lsblk -lnpo NAME,SIZE,TYPE,MOUNTPOINT 2>/dev/null)
+
+    if [ ${#list[@]} -eq 0 ]; then
+        msg "USB Storage" "No USB storage partitions detected.\nColok USB drive, lalu coba lagi."
+        return
+    fi
+
+    local dev
+    dev=$(whiptail --title "USB Storage" --menu "Pilih partisi:" 15 60 8 "${list[@]}" 3>&1 1>&2 2>&3) || return
+
+    local action
+    action=$(whiptail --title "USB: $dev" --menu "Action:" 12 50 4 \
+        1 "Mount (auto)" \
+        2 "Unmount" \
+        3 "Format as ext4 (DESTRUCTIVE!)" \
+        3>&1 1>&2 2>&3) || return
+
+    case "$action" in
+        1)
+            if mountpoint -q "/media/${dev##*/}" 2>/dev/null; then
+                msg "Mount" "Already mounted at /media/${dev##*/}"
+            else
+                sudo mkdir -p "/media/${dev##*/}"
+                if sudo mount "$dev" "/media/${dev##*/}" 2>&1; then
+                    msg "Mounted" "Mounted at /media/${dev##*/}"
+                else
+                    msg "Mount Failed" "Could not mount. Check filesystem."
+                fi
+            fi
+            ;;
+        2)
+            if sudo umount "$dev" 2>&1; then
+                sudo rmdir "/media/${dev##*/}" 2>/dev/null
+                msg "Unmounted" "Done. Safe to remove."
+            else
+                msg "Unmount Failed" "Device busy?"
+            fi
+            ;;
+        3)
+            if whiptail --title "Confirm Format" --yesno "FORMAT $dev as ext4?\nALL DATA WILL BE LOST!" 10 50; then
+                sudo umount "$dev" 2>/dev/null
+                sudo mkfs.ext4 -F "$dev" && msg "Formatted" "$dev formatted as ext4."
+            fi
+            ;;
+    esac
+}
+
+menu_netinfo() {
+    local ip_wifi ip_eth ip_ts gw dns
+    ip_wifi=$(ip -4 -o addr show wlan0 2>/dev/null | awk '{print $4}' | head -1)
+    ip_eth=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | head -1)
+    ip_ts=$(tailscale ip -4 2>/dev/null)
+    gw=$(ip -4 route show default 2>/dev/null | awk '{print $3}' | head -1)
+    dns=$(resolvectl status 2>/dev/null | awk '/Current DNS Server/ {print $4}' | head -1)
+    msg "Network Info" "Hostname : $(hostname)
+WiFi IP  : ${ip_wifi:-(none)}
+LAN IP   : ${ip_eth:-(none)}
+Tailscale: ${ip_ts:-(not running)}
+Gateway  : ${gw:-(none)}
+DNS      : ${dns:-(none)}
+
+SSH access:
+  ssh bx@${ip_wifi%/*}
+  ssh bx@${ip_ts:-<tailscale-ip>}"
+}
+
+menu_tailscale() {
+    local choice
+    choice=$(whiptail --title "Tailscale" --menu "Pilih:" 15 50 5 \
+        1 "Status" \
+        2 "Connect (up)" \
+        3 "Disconnect (down)" \
+        4 "Logout" \
+        3>&1 1>&2 2>&3) || return
+    case "$choice" in
+        1) clear; tailscale status; read -rp "Enter..." ;;
+        2) clear; sudo tailscale up --ssh --accept-dns=false; read -rp "Enter..." ;;
+        3) sudo tailscale down && msg "Tailscale" "Disconnected." ;;
+        4) if whiptail --title "Confirm" --yesno "Logout dari akun Tailscale?" 8 50; then
+              sudo tailscale logout; msg "Tailscale" "Logged out."
+           fi ;;
+    esac
+}
+
+menu_emmc() {
+    if [ ! -x /root/install-aml.sh ]; then
+        msg "Install to eMMC" "/root/install-aml.sh not found."
+        return
+    fi
+    whiptail --title "⚠️  Install to eMMC" --yesno "PERINGATAN: ini akan install ArmBX OS ke internal eMMC STB.
+JIKA eMMC Anda CORRUPT (misalnya STB B860H broken), JANGAN lanjut.
+Script akan check status eMMC.
+Lanjut?" 15 70 || return
+    clear
+    sudo /root/install-aml.sh
+    read -rp "Press Enter to continue..."
+}
+
+menu_legacy() {
+    local choice
+    choice=$(whiptail --title "Legacy Tools (Mustofa)" --menu "Hardware-specific tools:" 15 60 6 \
+        1 "Factory Reset" \
+        2 "Oprek B860H V1/V2.1" \
+        3 "Aktifkan WiFi HG680P" \
+        4 "Aktifkan WiFi B860H" \
+        5 "CLI <-> GUI" \
+        6 "Autologin <-> Manual Login" \
+        3>&1 1>&2 2>&3) || return
+    case "$choice" in
+        1) clear; sudo factory-reset 2>&1 || msg "Error" "factory-reset not found"; read -rp "Enter..." ;;
+        2) clear; sudo menu-b860h 2>&1 || msg "Error" "menu-b860h not found"; read -rp "Enter..." ;;
+        3) clear; sudo wifi-hg680p 2>&1 || msg "Error" "wifi-hg680p not found"; read -rp "Enter..." ;;
+        4) clear; sudo wifi-b860h 2>&1 || msg "Error" "wifi-b860h not found"; read -rp "Enter..." ;;
+        5) clear; sudo cli-gui 2>&1 || msg "Error" "cli-gui not found"; read -rp "Enter..." ;;
+        6) clear; sudo login-choices 2>&1 || msg "Error" "login-choices not found"; read -rp "Enter..." ;;
+    esac
+}
+
+menu_update() {
+    clear
+    sudo apt update && sudo apt upgrade -y
+    read -rp "Press Enter to continue..."
+}
+
+menu_sysinfo() {
+    local banner
+    banner=$(cat <<EOF
+Hostname : $(hostname)
+Kernel   : $(uname -r)
+Arch     : $(uname -m)
+Uptime   : $(uptime -p)
+
+$(free -h | head -2)
+
+$(df -h / | tail -1)
+
+Load     : $(cut -d ' ' -f 1-3 /proc/loadavg)
+Temp     : $(cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null | awk '{printf "%.1f°C\n", $1/1000}')
+EOF
+)
+    msg "System Info" "$banner"
+}
+
+while true; do
+    choice=$(whiptail --title "$TITLE" --menu "Pilih menu:" 22 60 12 \
+        1 "📶 Setup WiFi" \
+        2 "💾 USB Storage" \
+        3 "🌐 Network Info" \
+        4 "🔗 Tailscale" \
+        5 "📊 System Info" \
+        6 "⬆️  System Update" \
+        7 "⚙️  armbian-config" \
+        8 "💽 Install ArmBX to eMMC" \
+        9 "🔧 Legacy Tools (Mustofa)" \
+        10 "🔄 Reboot" \
+        11 "⏻  Shutdown" \
+        12 "Exit" \
+        3>&1 1>&2 2>&3) || { clear; exit 0; }
+
+    case "$choice" in
+        1) menu_wifi ;;
+        2) menu_usb ;;
+        3) menu_netinfo ;;
+        4) menu_tailscale ;;
+        5) menu_sysinfo ;;
+        6) menu_update ;;
+        7) clear; sudo armbian-config ;;
+        8) menu_emmc ;;
+        9) menu_legacy ;;
+        10) if whiptail --title "Reboot?" --yesno "Reboot STB sekarang?" 8 40; then sudo reboot; fi ;;
+        11) if whiptail --title "Shutdown?" --yesno "Shutdown STB sekarang?" 8 40; then sudo shutdown now; fi ;;
+        12) clear; exit 0 ;;
+    esac
+done

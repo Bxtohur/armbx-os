@@ -1,0 +1,6 @@
+#!/bin/bash
+case "$2" in
+    up|dhcp4-change|dhcp6-change)
+        /usr/local/sbin/armbx-update-issue
+        ;;
+esac

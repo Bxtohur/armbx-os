@@ -1,0 +1,15 @@
+[Unit]
+Description=ArmBX OS first-boot setup
+After=network.target local-fs.target
+ConditionPathExists=!/var/lib/armbx-firstboot.done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/armbx-firstboot
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

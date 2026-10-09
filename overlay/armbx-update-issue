@@ -1,0 +1,38 @@
+#!/bin/bash
+# Rewrite /etc/issue with current IPs resolved and broadcast banner to active TTYs.
+IP_WIFI=$(ip -4 -o addr show wlan0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+IP_ETH=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+IP_WIFI=${IP_WIFI:-"(not connected)"}
+IP_ETH=${IP_ETH:-"(not connected)"}
+
+# Preferred IP for SSH line
+IP_PRIMARY="$IP_WIFI"
+[ "$IP_WIFI" = "(not connected)" ] && IP_PRIMARY="$IP_ETH"
+
+BANNER=$(cat <<EOF
+
+================================================================
+                        ArmBX OS 1.0
+================================================================
+
+  Hostname : $(hostname)
+  WiFi IP  : $IP_WIFI
+  LAN IP   : $IP_ETH
+
+  Login via SSH from another machine:
+     ssh bx@$IP_PRIMARY
+
+================================================================
+
+EOF
+)
+
+{
+    echo "$BANNER"
+    echo '\s \r \l'
+    echo
+} > /etc/issue
+
+for tty in /dev/tty1 /dev/tty2 /dev/tty3; do
+    [ -w "$tty" ] && echo "$BANNER" > "$tty" 2>/dev/null || true
+done

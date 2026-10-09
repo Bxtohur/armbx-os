@@ -1,0 +1,1 @@
+bx ALL=(root) NOPASSWD: /usr/bin/nmcli, /usr/local/sbin/armbx-update-issue

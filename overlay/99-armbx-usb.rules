@@ -1,0 +1,4 @@
+# ArmBX: auto-mount USB storage partitions on plug-in
+# Match USB block device partitions (sda1, sdb1, sdc2, etc.) that are REMOVABLE
+ACTION=="add", KERNEL=="sd[a-z][0-9]*", SUBSYSTEMS=="usb", RUN+="/usr/local/sbin/armbx-usb-automount add %k"
+ACTION=="remove", KERNEL=="sd[a-z][0-9]*", RUN+="/usr/local/sbin/armbx-usb-automount remove %k"

@@ -1,0 +1,77 @@
+#!/bin/bash
+# ArmBX USB auto-mount script - called by udev on USB add/remove
+# $1 = ACTION (add|remove), $2 = KERNEL device name (e.g., sda1)
+
+ACTION=$1
+DEV=$2
+MOUNT_BASE=/media
+
+[ -z "$DEV" ] && exit 1
+
+mount_dev() {
+    local dev=$1
+    # Get FS type + label
+    local fstype label mnt
+    fstype=$(blkid -o value -s TYPE "/dev/$dev" 2>/dev/null)
+    label=$(blkid -o value -s LABEL "/dev/$dev" 2>/dev/null)
+    [ -z "$fstype" ] && return 1
+
+    # Pick mount point: /media/<label> or /media/<dev>
+    if [ -n "$label" ] && [ ! -e "$MOUNT_BASE/$label" ]; then
+        mnt="$MOUNT_BASE/$label"
+    else
+        mnt="$MOUNT_BASE/$dev"
+    fi
+
+    mkdir -p "$mnt"
+    chmod 755 "$mnt"
+
+    case "$fstype" in
+        vfat|exfat)
+            mount -t "$fstype" -o uid=1000,gid=1000,umask=022,noatime "/dev/$dev" "$mnt"
+            ;;
+        ntfs|ntfs3)
+            # Prefer ntfs-3g (FUSE) because kernel ntfs/ntfs3 ignores uid= options
+            mount -t ntfs-3g -o uid=1000,gid=1000,umask=022 "/dev/$dev" "$mnt" 2>/dev/null \
+                || mount -t ntfs3 -o uid=1000,gid=1000,umask=022 "/dev/$dev" "$mnt" 2>/dev/null \
+                || mount "/dev/$dev" "$mnt"
+            ;;
+        ext2|ext3|ext4|btrfs|xfs)
+            mount -t "$fstype" -o noatime "/dev/$dev" "$mnt"
+            # Ensure bx can write to the top level
+            chown 1000:1000 "$mnt" 2>/dev/null
+            ;;
+        *)
+            # Try generic mount
+            mount "/dev/$dev" "$mnt"
+            ;;
+    esac
+
+    logger -t armbx-usb "mounted /dev/$dev -> $mnt (type=$fstype)"
+    # Broadcast to all TTYs
+    for tty in /dev/tty1 /dev/tty2 /dev/tty3; do
+        [ -w "$tty" ] && echo "📀 USB mounted: /dev/$dev -> $mnt" > "$tty" 2>/dev/null || true
+    done
+}
+
+unmount_dev() {
+    local dev=$1
+    local mnt
+    mnt=$(findmnt -no TARGET "/dev/$dev" 2>/dev/null | head -1)
+    if [ -n "$mnt" ]; then
+        umount "/dev/$dev" 2>/dev/null || umount -l "/dev/$dev"
+        rmdir "$mnt" 2>/dev/null
+        logger -t armbx-usb "unmounted /dev/$dev (was $mnt)"
+    fi
+}
+
+case "$ACTION" in
+    add)
+        # Give time for partition to settle
+        sleep 1
+        mount_dev "$DEV"
+        ;;
+    remove)
+        unmount_dev "$DEV"
+        ;;
+esac

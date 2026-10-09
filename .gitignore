@@ -1,0 +1,31 @@
+# Large binary artifacts — upload via GitHub Releases, not git
+*.img
+*.img.xz
+*.img.gz
+
+# Logs
+*.log
+image.log
+wsl-mount.log
+
+# Temp
+*.tmp
+*.bak
+*.old
+*~
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Secrets — hostnames, tokens, local test configs
+*.secrets
+.env
+.env.local
+*.nmconnection
+
+# Build intermediates
+p2-raw.img
+armbx-full.img
+armbx-raw.img
